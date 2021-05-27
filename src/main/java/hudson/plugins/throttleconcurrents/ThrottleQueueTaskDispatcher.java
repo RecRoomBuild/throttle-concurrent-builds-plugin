@@ -4,16 +4,8 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.matrix.MatrixConfiguration;
 import hudson.matrix.MatrixProject;
-import hudson.model.Action;
-import hudson.model.Computer;
-import hudson.model.Executor;
-import hudson.model.Job;
-import hudson.model.Node;
-import hudson.model.ParameterValue;
-import hudson.model.ParametersAction;
-import hudson.model.Queue;
+import hudson.model.*;
 import hudson.model.Queue.Task;
-import hudson.model.Run;
 import hudson.model.labels.LabelAtom;
 import hudson.model.queue.CauseOfBlockage;
 import hudson.model.queue.QueueTaskDispatcher;
@@ -461,6 +453,20 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
             }
             return p.getProperty(ThrottleJobProperty.class);
         }
+
+        /**
+         * If we're trying to run a Placeholder Task and not a
+         * raw Job, we need to extract the current run from
+         * it and see if the Pipeline Job it was a part of
+         * has a globally configured {@link ThrottleJobProperty}
+         */
+        if(task instanceof PlaceholderTask) {
+            Run<?,?> run = ((PlaceholderTask) task).run();
+            if(run != null) {
+                return run.getParent().getProperty(ThrottleJobProperty.class);
+            }
+        }
+
         return null;
     }
 
@@ -496,6 +502,8 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
 
         // Note that this counts flyweight executors in its calculation, which may be a problem if
         // flyweight executors are being leaked by other plugins.
+        // Additionally, if we have pipeline runs that are globally throttled (i.e., using the JobProperty),
+        // we should make sure we check for any runs that are currently using an executor.
         return buildsOfProjectOnNodeImpl(node, task);
     }
 
@@ -569,8 +577,22 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
     private int buildsOnExecutor(Task task, Executor exec) {
         int runCount = 0;
         final Queue.Executable currentExecutable = exec.getCurrentExecutable();
-        if (currentExecutable != null && task.equals(currentExecutable.getParent())) {
-            runCount++;
+        if (currentExecutable != null)
+        {
+            SubTask parent = currentExecutable.getParent();
+            if(task.equals(parent)) {
+                runCount++;
+            }
+            else if (parent instanceof PlaceholderTask) {
+                // If we're running in a Pipeline with a global configuration, the
+                // task stored in an executor will be a PlaceholderTask with a reference
+                // to the specific job we're a part of. In this case, we want to see
+                // if the passed in `task` object matches the placeholder's owner.
+                if(parent.getOwnerTask().equals(task)) {
+                    runCount++;
+                }
+            }
+
         }
 
         return runCount;
