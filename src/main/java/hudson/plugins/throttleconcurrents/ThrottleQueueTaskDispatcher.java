@@ -97,6 +97,18 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
         return null;
     }
 
+    private boolean isTaskOrChildTaskPending(@NonNull Task task, @NonNull List<Queue.BuildableItem> pendingItems) {
+        for (Queue.BuildableItem item : pendingItems) {
+            if (item.task.equals(task)) {
+                return true;
+            } else if (item.task instanceof PlaceholderTask &&
+                    item.task.getOwnerTask().equals(task)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private CauseOfBlockage throttleCheckForCategoriesOnNode(Node node, Jenkins jenkins, List<String> categories) {
         // If the project is in one or more categories...
         if (!categories.isEmpty()) {
@@ -115,8 +127,9 @@ public class ThrottleQueueTaskDispatcher extends QueueTaskDispatcher {
                         int maxConcurrentPerNode = getMaxConcurrentPerNodeBasedOnMatchingLabels(
                                 node, category, category.getMaxConcurrentPerNode().intValue());
                         if (maxConcurrentPerNode > 0) {
+                            List<Queue.BuildableItem> pendingItems = jenkins.getQueue().getPendingItems();
                             for (Task catTask : categoryTasks) {
-                                if (jenkins.getQueue().isPending(catTask)) {
+                                if (isTaskOrChildTaskPending(catTask, pendingItems)) {
                                     return CauseOfBlockage.fromMessage(Messages._ThrottleQueueTaskDispatcher_BuildPending());
                                 }
                                 runCount += buildsOfProjectOnNode(node, catTask);
