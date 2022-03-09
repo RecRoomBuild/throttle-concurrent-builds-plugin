@@ -19,6 +19,7 @@ package hudson.plugins.throttleconcurrents;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.gargoylesoftware.htmlunit.ElementNotFoundException;
 import com.gargoylesoftware.htmlunit.html.HtmlButton;
@@ -37,6 +38,7 @@ import java.net.URL;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import jenkins.model.Jenkins;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -83,7 +85,7 @@ public class ThrottleQueueTaskDispatcherTest {
     @Before
     public void setUp() {
         // TODO Delete the tables code once the baseline is past 2.264.
-        VersionNumber version = r.jenkins.getVersion();
+        VersionNumber version = Jenkins.getVersion();
         if (version.isNewerThanOrEqualTo(new VersionNumber("2.264"))) {
             parentXPath = parentXPathDivs;
         } else {
@@ -198,12 +200,12 @@ public class ThrottleQueueTaskDispatcherTest {
         HtmlPage page = getLoggerPage(logger);
         if(expectMatch)
         {
-            assertTrue(expectedTracesMessage(match, true), page.asText().contains(matchTrace));
-            assertTrue(expectedTracesMessage(max, true), page.asText().contains(maxTrace+targetedPairNumber));
+            assertTrue(expectedTracesMessage(match, true), page.asNormalizedText().contains(matchTrace));
+            assertTrue(expectedTracesMessage(max, true), page.asNormalizedText().contains(maxTrace+targetedPairNumber));
         }
         else {
-            assertTrue(expectedTracesMessage(mismatch, true), page.asText().contains(mismatchTrace));
-            assertFalse(expectedTracesMessage(max, false), page.asText().contains(maxTrace));
+            assertTrue(expectedTracesMessage(mismatch, true), page.asNormalizedText().contains(mismatchTrace));
+            assertFalse(expectedTracesMessage(max, false), page.asNormalizedText().contains(maxTrace));
         }
     }
 
@@ -312,41 +314,55 @@ public class ThrottleQueueTaskDispatcherTest {
         for(HtmlRadioButtonInput radio: radios) {
             radio.setChecked(radio.getValueAttribute().equals("hudson.slaves.DumbSlave"));
         }
-        List<HtmlButton> buttons = HtmlUnitHelper.getButtonsByXPath(form, buttonsXPath);
-        String buttonText = "OK";
-        boolean buttonFound = false;
+        page = submitForm(form);
+        boolean buttonFound;
 
-        for(HtmlButton button: buttons) {
-            if(button.getTextContent().equals(buttonText))
+        List<HtmlForm> forms = page.getForms();
+
+        for(HtmlForm aForm: forms) {
+            if(aForm.getActionAttribute().equals("doCreateItem"))
             {
-                buttonFound = true;
-                page = button.click();
-                List<HtmlForm> forms = page.getForms();
-
-                for(HtmlForm aForm: forms) {
-                    if(aForm.getActionAttribute().equals("doCreateItem"))
-                    {
-                        form = aForm;
-                        break;
-                    }
-                }
-                input = form.getInputByName("_.numExecutors");
-                input.setValueAttribute("1");
-
-                input = form.getInputByName("_.remoteFS");
-                input.setValueAttribute("/");
-
-                input = form.getInputByName("_.labelString");
-                input.setValueAttribute(label);
+                form = aForm;
                 break;
             }
         }
-        failWithMessageIfButtonNotFoundOnPage(buttonFound, buttonText, url);
+        input = form.getInputByName("_.numExecutors");
+        input.setValueAttribute("1");
 
-        buttons = HtmlUnitHelper.getButtonsByXPath(form, buttonsXPath);
-        buttonText = saveButtonText;
-        buttonFound = buttonFoundThusFormSubmitted(form, buttons, buttonText);
-        failWithMessageIfButtonNotFoundOnPage(buttonFound, buttonText, url);
+        input = form.getInputByName("_.remoteFS");
+        input.setValueAttribute("/");
+
+        input = form.getInputByName("_.labelString");
+        input.setValueAttribute(label);
+
+        List<HtmlButton> buttons = HtmlUnitHelper.getButtonsByXPath(form, buttonsXPath);
+        buttonFound = buttonFoundThusFormSubmitted(form, buttons, saveButtonText);
+        failWithMessageIfButtonNotFoundOnPage(buttonFound, saveButtonText, url);
+    }
+
+    private HtmlPage submitForm(HtmlForm form) throws IOException {
+        HtmlPage page;
+        if (Jenkins.getVersion().isOlderThan(new VersionNumber("2.320"))) {
+            List<HtmlButton> buttons = HtmlUnitHelper.getButtonsByXPath(form, buttonsXPath);
+            if (buttons.isEmpty()) {
+                fail("Failed to find button by xpath: " + buttonsXPath);
+            }
+            page = buttons
+                    .stream().filter(button -> button.getTextContent().equals("OK"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(String.format(
+                            "Failed to find button by xpath: %s and text 'OK'", buttonsXPath))
+                    )
+                    .click();
+
+        } else {
+            List<HtmlElement> elementsByAttribute = form.getElementsByAttribute("input", "type", "submit");
+            if (elementsByAttribute.isEmpty()) {
+                fail("Failed to find an input with type submit on the page");
+            }
+            page = elementsByAttribute.get(0).click();
+        }
+        return page;
     }
 
     private String configureLogger()

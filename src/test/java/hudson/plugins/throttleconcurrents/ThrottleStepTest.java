@@ -7,9 +7,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.google.common.collect.Iterables;
-
-import hudson.Functions;
 import hudson.Launcher;
 import hudson.model.AbstractBuild;
 import hudson.model.BuildListener;
@@ -31,7 +28,6 @@ import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
 import org.jenkinsci.plugins.workflow.test.steps.SemaphoreStep;
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -49,6 +45,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Semaphore;
+import java.util.stream.Collectors;
 
 public class ThrottleStepTest {
 
@@ -70,11 +67,7 @@ public class ThrottleStepTest {
 
     @Test
     public void onePerNode() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 2, "on-agent");
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -92,8 +85,10 @@ public class ThrottleStepTest {
         j.waitForMessage("Still waiting to schedule task", secondJobFirstRun);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
@@ -114,13 +109,8 @@ public class ThrottleStepTest {
 
     @Test
     public void duplicateCategories() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
-        Node secondAgent =
-                TestUtil.setupAgent(j, secondAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         WorkflowJob job = j.createProject(WorkflowJob.class);
@@ -162,13 +152,8 @@ public class ThrottleStepTest {
 
     @Test
     public void multipleCategories() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
-        Node secondAgent =
-                TestUtil.setupAgent(j, secondAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE, TestUtil.OTHER_ONE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -226,13 +211,8 @@ public class ThrottleStepTest {
 
     @Test
     public void onePerNodeParallel() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
-        Node secondAgent =
-                TestUtil.setupAgent(j, secondAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -322,13 +302,8 @@ public class ThrottleStepTest {
 
     @Test
     public void twoTotal() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
-        Node secondAgent =
-                TestUtil.setupAgent(j, secondAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.TWO_TOTAL);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -379,13 +354,9 @@ public class ThrottleStepTest {
 
     @Test
     public void interopWithFreestyle() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
         final Semaphore semaphore = new Semaphore(1);
 
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -521,11 +492,7 @@ public class ThrottleStepTest {
     @Issue("JENKINS-49006")
     @Test
     public void throttledPipelinesByCategoryCopyOnWrite() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);

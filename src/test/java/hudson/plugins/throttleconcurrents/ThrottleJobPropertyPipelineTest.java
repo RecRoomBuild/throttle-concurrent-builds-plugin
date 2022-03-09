@@ -6,9 +6,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.google.common.collect.Iterables;
-
-import hudson.Functions;
 import hudson.model.Node;
 import hudson.model.ParametersDefinitionProperty;
 import hudson.model.Queue;
@@ -20,7 +17,6 @@ import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
 import org.jenkinsci.plugins.workflow.test.steps.SemaphoreStep;
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -35,6 +31,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ThrottleJobPropertyPipelineTest {
 
@@ -57,11 +54,7 @@ public class ThrottleJobPropertyPipelineTest {
     @Ignore("TODO Doesn't work at present")
     @Test
     public void onePerNode() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 2, "on-agent");
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, "on-agent");
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -97,8 +90,11 @@ public class ThrottleJobPropertyPipelineTest {
         j.waitForMessage("Still waiting to schedule task", secondJobFirstRun);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
@@ -119,13 +115,8 @@ public class ThrottleJobPropertyPipelineTest {
 
     @Test
     public void twoTotal() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
-        Node secondAgent =
-                TestUtil.setupAgent(j, secondAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.TWO_TOTAL);
 
         WorkflowJob firstJob = j.createProject(WorkflowJob.class);
@@ -176,8 +167,10 @@ public class ThrottleJobPropertyPipelineTest {
         QueueTaskFuture<WorkflowRun> thirdJobFirstRunFuture = thirdJob.scheduleBuild2(0);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
@@ -208,11 +201,7 @@ public class ThrottleJobPropertyPipelineTest {
     @Issue("JENKINS-37809")
     @Test
     public void limitOneJobWithMatchingParams() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 2, null);
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, null);
 
         WorkflowJob project = j.createProject(WorkflowJob.class);
         ParametersDefinitionProperty pdp =
@@ -239,8 +228,10 @@ public class ThrottleJobPropertyPipelineTest {
         QueueTaskFuture<WorkflowRun> secondRunFuture = project.scheduleBuild2(0);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,

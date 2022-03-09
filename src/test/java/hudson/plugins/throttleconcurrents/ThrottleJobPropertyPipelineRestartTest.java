@@ -7,9 +7,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.google.common.collect.Iterables;
-
-import hudson.Functions;
 import hudson.model.Node;
 import hudson.model.Queue;
 import hudson.util.RunList;
@@ -17,7 +14,6 @@ import hudson.util.RunList;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
 import org.jenkinsci.plugins.workflow.test.steps.SemaphoreStep;
-import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -30,6 +26,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ThrottleJobPropertyPipelineRestartTest {
 
@@ -42,21 +39,15 @@ public class ThrottleJobPropertyPipelineRestartTest {
 
     @Test
     public void twoTotalWithRestart() throws Throwable {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
         String[] jobNames = new String[2];
         String[] agentNames = new String[2];
         sessions.then(
                 j -> {
                     List<Node> agents = new ArrayList<>();
                     Node firstAgent =
-                            TestUtil.setupAgent(
-                                    j, firstAgentTmp, agents, null, null, 4, "on-agent");
+                            TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
                     Node secondAgent =
-                            TestUtil.setupAgent(
-                                    j, secondAgentTmp, agents, null, null, 4, "on-agent");
+                            TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
                     agentNames[0] = firstAgent.getNodeName();
                     agentNames[1] = secondAgent.getNodeName();
                     TestUtil.setupCategories(TestUtil.TWO_TOTAL);
@@ -123,9 +114,11 @@ public class ThrottleJobPropertyPipelineRestartTest {
                     thirdJob.scheduleBuild2(0);
                     j.jenkins.getQueue().maintain();
                     assertFalse(j.jenkins.getQueue().isEmpty());
-                    Queue.Item queuedItem =
-                            Iterables.getOnlyElement(
-                                    Arrays.asList(j.jenkins.getQueue().getItems()));
+                    List<Queue.Item> queuedItemList =
+                            Arrays.stream(j.jenkins.getQueue().getItems())
+                                    .collect(Collectors.toList());
+                    assertEquals(1, queuedItemList.size());
+                    Queue.Item queuedItem = queuedItemList.get(0);
                     Set<String> blockageReasons =
                             TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
                     assertThat(
@@ -160,9 +153,11 @@ public class ThrottleJobPropertyPipelineRestartTest {
                     }
 
                     assertFalse(j.jenkins.getQueue().isEmpty());
-                    Queue.Item queuedItem =
-                            Iterables.getOnlyElement(
-                                    Arrays.asList(j.jenkins.getQueue().getItems()));
+                    List<Queue.Item> queuedItemList =
+                            Arrays.stream(j.jenkins.getQueue().getItems())
+                                    .collect(Collectors.toList());
+                    assertEquals(1, queuedItemList.size());
+                    Queue.Item queuedItem = queuedItemList.get(0);
                     Set<String> blockageReasons =
                             TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
                     assertThat(

@@ -37,7 +37,7 @@ Usage specifics:
 
 * If the throttling category cannot be satisfied, the task submission stays in the queue until the locked category becomes available.
 * The submission can be terminated manually or by timeout.
-* This plugin throttles tasks only only on common executors. Flyweight tasks are not throttled.
+* This plugin throttles tasks only on common executors. Flyweight tasks are not throttled.
 * If the jobs are organized into a chain (e.g., via Parameterized Trigger build steps), each run in the chain is counted independently. For example, if _ProjectA_ and _ProjectB_ use category `cat_A` on the same node, two executors are required from the category pool. Improper configuration of categories/jobs may result in a deadlock of such build chains due to consumption of all executors and waiting for downstream executions blocked in the queue.
 
 === Global configuration
@@ -50,6 +50,20 @@ For example:
 image:doc/images/global_categoryConfig.png[Global Category Configuration]
 
 To set an unlimited value of concurrent builds for a restriction, use 0.
+
+Also global configuration could be configured via https://plugins.jenkins.io/configuration-as-code/[Jenkins Configuration as Code] (JCasC) as following:
+[source,yaml]
+----
+unclassified:
+  throttleJobProperty:
+    categories:
+    - categoryName: "myThrottleCategory"
+      maxConcurrentTotal: 5
+      maxConcurrentPerNode: 2
+      nodeLabeledPairs:
+      - throttledNodeLabel: "docker"
+        maxConcurrentPerNodeLabeled: 1
+----
 
 === Throttling of classic job types
 

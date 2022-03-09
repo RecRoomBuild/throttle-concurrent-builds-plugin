@@ -31,9 +31,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.cloudbees.hudson.plugins.folder.Folder;
-import com.google.common.collect.Iterables;
 
-import hudson.Functions;
 import hudson.Launcher;
 import hudson.model.AbstractBuild;
 import hudson.model.BuildListener;
@@ -45,12 +43,9 @@ import hudson.model.ParametersDefinitionProperty;
 import hudson.model.Queue;
 import hudson.model.StringParameterDefinition;
 import hudson.model.queue.QueueTaskFuture;
-import hudson.plugins.throttleconcurrents.testutils.ExecutorWaterMarkRetentionStrategy;
 import hudson.security.GlobalMatrixAuthorizationStrategy;
-import hudson.slaves.SlaveComputer;
 
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -60,7 +55,6 @@ import org.jvnet.hudson.test.BuildWatcher;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.SequenceLock;
-import org.jvnet.hudson.test.SleepBuilder;
 import org.jvnet.hudson.test.TestBuilder;
 
 import java.util.ArrayList;
@@ -68,10 +62,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Tests that {@link ThrottleJobProperty} actually works for builds. */
 public class ThrottleJobPropertyFreestyleTest {
-    private static final long SLEEP_TIME = 100;
 
     @Rule public JenkinsRule j = new JenkinsRule();
 
@@ -81,7 +75,6 @@ public class ThrottleJobPropertyFreestyleTest {
     @Rule public TemporaryFolder secondAgentTmp = new TemporaryFolder();
 
     private List<Node> agents = new ArrayList<>();
-    private List<ExecutorWaterMarkRetentionStrategy<SlaveComputer>> waterMarks = new ArrayList<>();
 
     /** setup security so that no one except SYSTEM has any permissions. */
     @Before
@@ -96,42 +89,42 @@ public class ThrottleJobPropertyFreestyleTest {
     public void tearDown() throws Exception {
         TestUtil.tearDown(j, agents);
         agents = new ArrayList<>();
-        waterMarks = new ArrayList<>();
     }
 
     @Test
     public void testNoThrottling() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, waterMarks, null, 2, null);
-        ExecutorWaterMarkRetentionStrategy<SlaveComputer> waterMark = waterMarks.get(0);
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, null);
 
         FreeStyleProject p1 = j.createFreeStyleProject();
+        SequenceLock seq1 = new SequenceLock();
         p1.setAssignedNode(agent);
-        p1.getBuildersList().add(new SleepBuilder(SLEEP_TIME));
+        p1.getBuildersList().add(new SequenceLockBuilder(seq1));
 
         FreeStyleProject p2 = j.createFreeStyleProject();
+        SequenceLock seq2 = new SequenceLock();
         p2.setAssignedNode(agent);
-        p2.getBuildersList().add(new SleepBuilder(SLEEP_TIME));
+        p2.getBuildersList().add(new SequenceLockBuilder(seq2));
 
-        p1.scheduleBuild2(0);
-        p2.scheduleBuild2(0);
+        FreeStyleBuild b1 = p1.scheduleBuild2(0).waitForStart();
+        FreeStyleBuild b2 = p2.scheduleBuild2(0).waitForStart();
 
-        j.waitUntilNoActivity();
+        seq1.phase(1);
+        seq2.phase(1);
 
-        // not throttled, and builds run concurrently.
-        assertEquals(2, waterMark.getExecutorWaterMark());
+        j.jenkins.getQueue().maintain();
+        assertTrue(j.jenkins.getQueue().isEmpty());
+        assertEquals(2, agent.toComputer().countBusy());
+
+        seq1.done();
+        seq2.done();
+
+        j.assertBuildStatusSuccess(j.waitForCompletion(b1));
+        j.assertBuildStatusSuccess(j.waitForCompletion(b2));
     }
 
     @Test
     public void onePerNode() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 2, null);
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, null);
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         FreeStyleProject firstJob = j.createFreeStyleProject();
@@ -170,8 +163,10 @@ public class ThrottleJobPropertyFreestyleTest {
         QueueTaskFuture<FreeStyleBuild> secondJobFirstRunFuture = secondJob.scheduleBuild2(0);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
@@ -192,13 +187,8 @@ public class ThrottleJobPropertyFreestyleTest {
 
     @Test
     public void twoTotal() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 4, "on-agent");
-        Node secondAgent =
-                TestUtil.setupAgent(j, secondAgentTmp, agents, null, null, 4, "on-agent");
+        Node firstAgent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 4, "on-agent");
+        Node secondAgent = TestUtil.setupAgent(j, secondAgentTmp, agents, null, 4, "on-agent");
         TestUtil.setupCategories(TestUtil.TWO_TOTAL);
 
         FreeStyleProject firstJob = j.createFreeStyleProject();
@@ -255,8 +245,10 @@ public class ThrottleJobPropertyFreestyleTest {
         QueueTaskFuture<FreeStyleBuild> thirdJobFirstRunFuture = thirdJob.scheduleBuild2(0);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
@@ -283,11 +275,7 @@ public class ThrottleJobPropertyFreestyleTest {
 
     @Test
     public void limitOneJobWithMatchingParams() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, null, 2, null);
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, null);
 
         FreeStyleProject project = j.createFreeStyleProject();
         project.setAssignedNode(agent);
@@ -317,8 +305,10 @@ public class ThrottleJobPropertyFreestyleTest {
         QueueTaskFuture<FreeStyleBuild> secondRunFuture = project.scheduleBuild2(0);
         j.jenkins.getQueue().maintain();
         assertFalse(j.jenkins.getQueue().isEmpty());
-        Queue.Item queuedItem =
-                Iterables.getOnlyElement(Arrays.asList(j.jenkins.getQueue().getItems()));
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
         Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
         assertThat(
                 blockageReasons,
@@ -342,16 +332,12 @@ public class ThrottleJobPropertyFreestyleTest {
     @Issue("JENKINS-25326")
     @Test
     public void testThrottlingWithCategoryInFolder() throws Exception {
-        Assume.assumeFalse(
-                "TODO Windows ACI agents do not have enough memory to run this test",
-                Functions.isWindows());
-
-        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, waterMarks, null, 2, null);
-        ExecutorWaterMarkRetentionStrategy<SlaveComputer> waterMark = waterMarks.get(0);
+        Node agent = TestUtil.setupAgent(j, firstAgentTmp, agents, null, 2, null);
         TestUtil.setupCategories(TestUtil.ONE_PER_NODE);
 
         Folder f1 = j.createProject(Folder.class, "folder1");
         FreeStyleProject p1 = f1.createProject(FreeStyleProject.class, "p");
+        SequenceLock seq1 = new SequenceLock();
         p1.setAssignedNode(agent);
         p1.addProperty(
                 new ThrottleJobProperty(
@@ -363,10 +349,11 @@ public class ThrottleJobPropertyFreestyleTest {
                         false, // limitOneJobWithMatchingParams
                         null, // paramsToUse for the previous flag
                         ThrottleMatrixProjectOptions.DEFAULT));
-        p1.getBuildersList().add(new SleepBuilder(SLEEP_TIME));
+        p1.getBuildersList().add(new SequenceLockBuilder(seq1));
 
         Folder f2 = j.createProject(Folder.class, "folder2");
         FreeStyleProject p2 = f2.createProject(FreeStyleProject.class, "p");
+        SequenceLock seq2 = new SequenceLock();
         p2.setAssignedNode(agent);
         p2.addProperty(
                 new ThrottleJobProperty(
@@ -378,15 +365,34 @@ public class ThrottleJobPropertyFreestyleTest {
                         false, // limitOneJobWithMatchingParams
                         null, // paramsToUse for the previous flag
                         ThrottleMatrixProjectOptions.DEFAULT));
-        p2.getBuildersList().add(new SleepBuilder(SLEEP_TIME));
+        p2.getBuildersList().add(new SequenceLockBuilder(seq2));
 
-        p1.scheduleBuild2(0);
-        p2.scheduleBuild2(0);
+        FreeStyleBuild b1 = p1.scheduleBuild2(0).waitForStart();
+        seq1.phase(1);
 
-        j.waitUntilNoActivity();
+        QueueTaskFuture<FreeStyleBuild> b2future = p2.scheduleBuild2(0);
+        j.jenkins.getQueue().maintain();
+        assertFalse(j.jenkins.getQueue().isEmpty());
+        List<Queue.Item> queuedItemList =
+                Arrays.stream(j.jenkins.getQueue().getItems()).collect(Collectors.toList());
+        assertEquals(1, queuedItemList.size());
+        Queue.Item queuedItem = queuedItemList.get(0);
+        Set<String> blockageReasons = TestUtil.getBlockageReasons(queuedItem.getCauseOfBlockage());
+        assertThat(
+                blockageReasons,
+                hasItem(Messages._ThrottleQueueTaskDispatcher_MaxCapacityOnNode(1).toString()));
+        assertEquals(1, agent.toComputer().countBusy());
 
-        // throttled, and only one build runs at the same time.
-        assertEquals(1, waterMark.getExecutorWaterMark());
+        seq1.done();
+        j.assertBuildStatusSuccess(j.waitForCompletion(b1));
+
+        FreeStyleBuild secondRun = b2future.waitForStart();
+        seq2.phase(1);
+        j.jenkins.getQueue().maintain();
+        assertTrue(j.jenkins.getQueue().isEmpty());
+        assertEquals(1, agent.toComputer().countBusy());
+        seq2.done();
+        j.assertBuildStatusSuccess(j.waitForCompletion(secondRun));
     }
 
     private static class SequenceLockBuilder extends TestBuilder {
