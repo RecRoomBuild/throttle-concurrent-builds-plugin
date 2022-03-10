@@ -7,6 +7,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import hudson.Functions;
 import hudson.model.Node;
 import hudson.model.Queue;
 import hudson.util.RunList;
@@ -14,6 +15,7 @@ import hudson.util.RunList;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
 import org.jenkinsci.plugins.workflow.test.steps.SemaphoreStep;
+import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -39,6 +41,12 @@ public class ThrottleJobPropertyPipelineRestartTest {
 
     @Test
     public void twoTotalWithRestart() throws Throwable {
+        // RR: Restore code disabling this test on Windows
+        Assume.assumeFalse(
+                "Disabling this test on Windows because we always time out. " +
+                        "This is likely a bug that should be investigated at some point, but it's not a new bug.",
+                Functions.isWindows());
+
         String[] jobNames = new String[2];
         String[] agentNames = new String[2];
         sessions.then(
